@@ -1,4 +1,4 @@
-from hogFeatures import extract_hog_features
+from hog_features import extract_hog_features
 from evaluator import ModelEvaluator 
 from sklearn.svm import SVC
 
