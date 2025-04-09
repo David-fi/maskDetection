@@ -21,14 +21,24 @@ val_preds = evaluate_hog_svm(hog_svm_model, X_val, y_val)
 # Visualize some results from validation set
 show_predictions(X_val, y_val, val_preds)
 '''
-
+'''
 from models.sift_mlp import train_sift_mlp, evaluate_sift_mlp, show_predictions
 
 # Train
 clf_sift, kmeans_sift = train_sift_mlp(X_train, y_train)
-
 # Evaluate
 val_preds_sift = evaluate_sift_mlp(clf_sift, kmeans_sift, X_val, y_val)
-
 # Visualize
 show_predictions(X_val, y_val, val_preds_sift)
+'''
+
+from models.cnn import train_cnn, evaluate_cnn, show_predictions
+
+# Train CNN
+cnn_model, cnn_history = train_cnn(X_train, y_train, X_val, y_val)
+
+# Evaluate
+y_pred_cnn = evaluate_cnn(cnn_model, X_val, y_val)
+
+# Visualize
+show_predictions(X_val, y_val, y_pred_cnn)
