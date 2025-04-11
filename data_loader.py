@@ -3,6 +3,9 @@ import numpy as np
 from skimage.io import imread
 from skimage.transform import resize
 from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+from collections import Counter
+
 
 def load_images_and_labels(image_dir, label_dir, image_size=(128, 128)):
     images = [] 
@@ -30,6 +33,17 @@ def load_images_and_labels(image_dir, label_dir, image_size=(128, 128)):
     #converts the two lists, image and label into numpy arrays 
     return np.array(images, dtype=np.float32), np.array(labels, dtype=np.int64)
 
+def plot_class_distribution(labels, title):
+    counter = Counter(labels)
+    classes = sorted(counter.keys())
+    counts = [counter[c] for c in classes]
+    plt.figure(figsize=(6, 4))
+    plt.bar(classes, counts, tick_label=[f"Class {c}" for c in classes])
+    plt.title(title)
+    plt.xlabel("Class")
+    plt.ylabel("Count")
+    plt.tight_layout()
+    plt.show()
 def prepare_datasets(
     train_image_path, train_label_path,
     test_image_path, test_label_path,
@@ -43,10 +57,19 @@ def prepare_datasets(
     #same with the test set 
     X_test, y_test = load_images_and_labels(test_image_path, test_label_path, image_size)
 
+
+    # Show distribution before split
+    plot_class_distribution(y_train_full, "Train Full Distribution")
+    plot_class_distribution(y_test, "Test Distribution")
+
     # Split training data into train validation, standard split
     X_train, X_val, y_train, y_val = train_test_split(
         X_train_full, y_train_full, test_size=val_split, random_state=seed, stratify=y_train_full #ensure smae label distribution with stratify
     )
+
+    # Show distribution after split
+    plot_class_distribution(y_train, "Train Split Distribution")
+    plot_class_distribution(y_val, "Validation Split Distribution")
 
     #sanity check
     print(f"Train: {X_train.shape}, {y_train.shape}")

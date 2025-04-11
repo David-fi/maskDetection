@@ -1,77 +1,149 @@
 import tensorflow as tf
 from keras.api.models import Sequential
-from keras.api.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+from keras.api.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, Input
 from keras.api.utils import to_categorical
 from keras.api.callbacks import EarlyStopping
+from keras.api.optimizers import Adam
 import numpy as np
+from sklearn.utils.class_weight import compute_class_weight
+import joblib
 from evaluator import ModelEvaluator 
+from keras.api.layers import BatchNormalization
+from keras.api.callbacks import ReduceLROnPlateau, ModelCheckpoint
 
+import numpy as np, random, tensorflow as tf
+np.random.seed(42)
+random.seed(42)
+tf.random.set_seed(42)
+
+#initialise evaluator
 evaluator = ModelEvaluator(class_names=["No Mask", "Mask", "Incorrect"])
 
-def build_cnn(input_shape=(128, 128, 3), num_classes=3):
+def build_cnn(input_shape=(128, 128, 3), num_classes=3, filters=(32, 64, 128), dense_units=128, dropout=0.5):
     model = Sequential() #using a sequential model
-    #initialise a stack of layers 
+    model.add(Input(shape=input_shape)) #defining the input shape (it's 128 by 128 RBG img)
 
-    # First conv layer, apply 32 filters of size 3x3
-    # ReLU activation introduces non-linearity
-    # first layer where input shape is defined
-    model.add(Conv2D(32, (3, 3), activation='relu', input_shape=input_shape))
+    # mulitple conv to max pooling to dropout blocks 
+    for i, f in enumerate(filters):
+        model.add(Conv2D(f, (3, 3), activation='relu', padding='same')) #layers where features are detected
+        model.add(BatchNormalization())
+        model.add(MaxPooling2D(pool_size=(2, 2)))  #reduces spatial dimensions by 2x, makes feature map smaller and more abstract
+        #randomly drop .2 then .3 then .4... neurons in training, the more the deeper the layers
+        model.add(Dropout(0.2 + i * 0.1))#dropout increases with layers to prevenet overfitting and help with regularization
 
-    #reduces spatial dimensions by 2x, makes feature map smaller and more abstract
-    model.add(MaxPooling2D(pool_size=(2, 2))) 
-
-    #randomly turn off 1/4 of the neurons in training 
-    model.add(Dropout(0.25))  # prevent overfitting by forcing robustness 
-
-    #the second layer now has double the filters for deeper feature learning 
-    model.add(Conv2D(64, (3, 3), activation='relu'))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-    model.add(Dropout(0.25))    
-
-    #once again double the filters for even deeper learning 
-    model.add(Flatten())  # Flatten ouutputs of previous layers to 1D 
-    model.add(Dense(128, activation='relu'))  # Fully connected layer, relu helps the network learn non linear boundaries 
-    model.add(Dropout(0.5)) #stronger regularization to prevent overfitting before output layer
-    model.add(Dense(num_classes, activation='softmax'))  # final output layer has a neuron ofr each class, softmax converts scores to class probs
-
-    model.compile(
-        optimizer='adam', #adaptive learning rate optimizer
-        loss='categorical_crossentropy', #good for mulit class classification
-        metrics=['accuracy'] #keep track during training and evaluation
-    )
+    model.add(Flatten())# Flatten ouutputs of previous layers to 1D 
+    model.add(Dense(dense_units, activation='relu')) # Fully connected layer, relu helps the network learn non linear boundaries 
+    model.add(Dropout(dropout)) #stronger regularization to prevent overfitting before output layer
+    model.add(Dense(num_classes, activation='softmax')) # final output layer has a neuron ofr each class, softmax converts scores to class probs
 
     return model
 
-def train_cnn(X_train, y_train, X_val, y_val, epochs=30, batch_size=32):
-    model = build_cnn(input_shape=X_train.shape[1:], num_classes=3) #buliding the cnn with the input data, and the numb of classes from the data
-
-    early_stop = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True) #stops training early if val loss doesnt improve in 3 epochs, avoid overfitting
-
-    # Convert labels to categorical (1 -> [0, 1, 0])
-    y_train_cat = to_categorical(y_train, num_classes=3)
-    y_val_cat = to_categorical(y_val, num_classes=3)
-
-    history = model.fit(
-        X_train, y_train_cat, 
-        validation_data=(X_val, y_val_cat),
-        epochs=epochs,
-        batch_size=batch_size, #how many samples are processed at a time
-        verbose=1, #progress bar 
-        callbacks=[early_stop] #early stopping
+#compiles model with an optimizer and a loss function
+def compile_model(model, lr):
+    model.compile(
+        optimizer=Adam(learning_rate=lr),  #adaptive learning rate optimizer
+        loss='categorical_crossentropy',#good for mulit class classification
+        metrics=['accuracy']#keep track during training and evaluation
     )
+    return model
 
-    return model, history
+#the class where we train, eval, and tune the cnn
+class CNNTrainer:
+    #call the training of a model with the best parameters we found
+    def train_best_model(self, X_train, y_train, X_val, y_val):
+        #input_shape = X_train.shape[1:] allows the model to be flexible to different resolutions 
+      
+        model, config = joblib.load('best_model_with_config.joblib')
+        print("Best config loaded:", config)
+        print(model.get_config())
+        # Convert labels to categorical (1 -> [0, 1, 0])
+        y_train_cat = to_categorical(y_train, num_classes=3)
+        y_val_cat = to_categorical(y_val, num_classes=3)
 
-def evaluate_cnn(model, X_val, y_val):
-    y_pred_prob = model.predict(X_val)  # probabilities for each class
-    y_pred = np.argmax(y_pred_prob, axis=1)  # Convert softmax outputs to class indices
+        #to handle the imbalances in the dataset im using the class weights
+        class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
+        class_weights_dict = {i: class_weights[i] for i in range(3)}
 
-    # Use evaluator class for metrics and confusion matrix
-    evaluator.evaluate(y_val, y_pred, model_name="Simple CNN")
-    evaluator.plot_confusion_matrix(y_val, y_pred, title="Simple CNN - Validation Confusion Matrix")
+        #prevent overfitting in accordance to validation loss
+        early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
 
-    return y_pred
+        # Define callbacks
+        early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+        reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=3, verbose=1)
+        checkpoint = ModelCheckpoint('checkpoint_best_model.keras', monitor='val_loss', save_best_only=True)
 
-def show_predictions(X_val, y_val, y_pred, n_samples=4):
-    #preview of some predictions 
-    evaluator.visualize_predictions(X_val, y_val, y_pred, n_samples=n_samples)
+
+        #now we train the model
+        model.fit(X_train, y_train_cat,
+                  validation_data=(X_val, y_val_cat),
+                  epochs=20,
+                  batch_size=32,
+                  class_weight=class_weights_dict, #prevent bias to majority class like correct
+                  callbacks=[early_stop, reduce_lr, checkpoint],
+                  verbose=1)
+        return model
+
+#testing hyperparameter combinations to find the best ones
+#i went for a manual gridsearch to have full control over the specificic combinations
+#as the classes are imbalanced f1 score is the best to determine the models performance
+    def run_grid_search(self, X_train, y_train, X_val, y_val, param_grid):
+        best_f1 = -1 #track the best f1 score
+        best_model = None
+        best_config = None
+
+        #loop through the parameter grid to check which combination is the best perfoming
+        for filters, dense_units, dropout, lr, batch_size, epochs in param_grid:
+            print(f"\n\U0001F50D Training model with filters={filters}, dense_units={dense_units}, "
+                  f"dropout={dropout}, lr={lr}, batch_size={batch_size}, epochs={epochs}")
+
+            #build model with a flexible input in case of different resolution
+            model = build_cnn(input_shape=X_train.shape[1:], num_classes=3,
+                              filters=filters, dense_units=dense_units, dropout=dropout)
+            #compile 
+            model = compile_model(model, lr)
+
+            y_train_cat = to_categorical(y_train, num_classes=3)
+            y_val_cat = to_categorical(y_val, num_classes=3)
+
+            class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
+            class_weights_dict = dict(enumerate(class_weights))
+
+            early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+
+            # Define callbacks
+            early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+            reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=3, verbose=1)
+            checkpoint = ModelCheckpoint('checkpoint_best_model.keras', monitor='val_loss', save_best_only=True)
+
+            model.fit(X_train, y_train_cat,
+                      validation_data=(X_val, y_val_cat),
+                      epochs=epochs,
+                      batch_size=batch_size,
+                      class_weight=class_weights_dict,
+                      callbacks=[early_stop, reduce_lr, checkpoint],
+                      verbose=1)
+
+            y_pred = np.argmax(model.predict(X_val), axis=1) #convert the softmax output, to the class labels
+            results = evaluator.evaluate(y_val, y_pred, model_name=f"GridCNN {filters}-{dense_units}-{dropout}")
+            evaluator.plot_confusion_matrix(y_val, y_pred) #plot the confusion matrix
+
+            if results['f1_macro'] > best_f1: #using marco f1 puts a foucs on the perfomance across all classes
+                best_f1 = results['f1_macro']
+                best_model = model
+                best_config = (filters, dense_units, dropout, lr, batch_size, epochs)
+
+        print(f"\n\U0001F3C6 Best Configuration: {best_config}, Macro F1: {best_f1:.4f}")
+        joblib.dump((best_model, best_config), 'best_model_with_config.joblib') 
+        return best_model, best_config
+
+    #evalute the final model with the metrics and confusion matrix from the evaluator class
+    def evaluate_model(self, model, X_val, y_val):
+        y_pred = np.argmax(model.predict(X_val), axis=1)
+        evaluator.evaluate(y_val, y_pred, model_name="Final Model")
+        evaluator.plot_confusion_matrix(y_val, y_pred)
+        return y_pred
+
+    #visualise some results for the report
+    def visualize_predictions(self, model, X_val, y_val, n_samples=4):
+        y_pred = np.argmax(model.predict(X_val), axis=1)
+        evaluator.visualize_predictions(X_val, y_val, y_pred, n_samples=n_samples)

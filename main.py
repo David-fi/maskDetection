@@ -1,6 +1,7 @@
 from data_loader import prepare_datasets
 from models.hog_svm import train_hog_svm, evaluate_hog_svm, show_predictions
 from evaluator import ModelEvaluator
+from models.cnn import CNNTrainer
 
 train_image_path = '/Users/david/Library/Mobile Documents/com~apple~CloudDocs/Documents/Documents – David’s MacBook Pro/university/year 3/Computer vision/cw/CV2024_CW_Dataset/train/images'
 train_label_path = '/Users/david/Library/Mobile Documents/com~apple~CloudDocs/Documents/Documents – David’s MacBook Pro/university/year 3/Computer vision/cw/CV2024_CW_Dataset/train/labels'
@@ -31,7 +32,7 @@ val_preds_sift = evaluate_sift_mlp(clf_sift, kmeans_sift, X_val, y_val)
 # Visualize
 show_predictions(X_val, y_val, val_preds_sift)
 '''
-
+'''
 from models.cnn import train_cnn, evaluate_cnn, show_predictions
 
 # Train CNN
@@ -42,3 +43,17 @@ y_pred_cnn = evaluate_cnn(cnn_model, X_val, y_val)
 
 # Visualize
 show_predictions(X_val, y_val, y_pred_cnn)
+
+'''
+
+param_grid = [
+    ((32, 64, 128), 128, 0.3, 0.001, 32, 15),
+    ((32, 64, 128), 256, 0.2, 0.0001, 64, 15),
+    ((32, 64, 128, 256), 128, 0.3, 0.0001, 32, 15),
+    ((64, 128, 256), 256, 0.2, 0.001, 64, 20),
+]
+
+trainer = CNNTrainer()
+best_model, best_config = trainer.run_grid_search(X_train, y_train, X_val, y_val, param_grid)
+trainer.evaluate_model(best_model, X_val, y_val)
+trainer.visualize_predictions(best_model, X_val, y_val)
