@@ -7,16 +7,12 @@ from keras.api.optimizers import Adam
 import numpy as np
 from sklearn.utils.class_weight import compute_class_weight
 import joblib
-from evaluator import ModelEvaluator 
-from keras.api.layers import BatchNormalization
-from keras.api.callbacks import ReduceLROnPlateau, ModelCheckpoint
 
 import numpy as np, random, tensorflow as tf
 np.random.seed(42)
 random.seed(42)
 tf.random.set_seed(42)
-
-#initialise evaluator
+from evaluator import ModelEvaluator
 evaluator = ModelEvaluator(class_names=["No Mask", "Mask", "Incorrect"])
 
 def build_cnn(input_shape=(128, 128, 3), num_classes=3, filters=(32, 64, 128), dense_units=128, dropout=0.5):
@@ -26,7 +22,6 @@ def build_cnn(input_shape=(128, 128, 3), num_classes=3, filters=(32, 64, 128), d
     # mulitple conv to max pooling to dropout blocks 
     for i, f in enumerate(filters):
         model.add(Conv2D(f, (3, 3), activation='relu', padding='same')) #layers where features are detected
-        model.add(BatchNormalization())
         model.add(MaxPooling2D(pool_size=(2, 2)))  #reduces spatial dimensions by 2x, makes feature map smaller and more abstract
         #randomly drop .2 then .3 then .4... neurons in training, the more the deeper the layers
         model.add(Dropout(0.2 + i * 0.1))#dropout increases with layers to prevenet overfitting and help with regularization
@@ -52,14 +47,32 @@ class CNNTrainer:
     #call the training of a model with the best parameters we found
     def train_best_model(self, X_train, y_train, X_val, y_val):
         #input_shape = X_train.shape[1:] allows the model to be flexible to different resolutions 
-      
-        model, config = joblib.load('best_model_with_config.joblib')
-        print("Best config loaded:", config)
+          
+        model = joblib.load('best_model_gridsearch.joblib')  # Load the best model found from grid search
+        print("Loaded model parameters:")
         print(model.get_config())
+        
+        # #  # Define fixed best hyperparameters
+        # # filters = (64, 128, 256)
+        # # dense_units = 128
+        # # dropout = 0.3
+        # # lr = 0.001
+        # # batch_size = 32
+        # # epochs = 15
+
+        # # Build and compile model with those params
+        # model = build_cnn(input_shape=X_train.shape[1:], num_classes=3,
+        #                 filters=filters, dense_units=dense_units, dropout=dropout)
+        # model = compile_model(model, lr)
+
+        # print("Using manually selected best config:")
+        # print((filters, dense_units, dropout, lr, batch_size, epochs))
+        # print(model.get_config())
+
         # Convert labels to categorical (1 -> [0, 1, 0])
         y_train_cat = to_categorical(y_train, num_classes=3)
         y_val_cat = to_categorical(y_val, num_classes=3)
-
+        
         #to handle the imbalances in the dataset im using the class weights
         class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
         class_weights_dict = {i: class_weights[i] for i in range(3)}
@@ -67,20 +80,16 @@ class CNNTrainer:
         #prevent overfitting in accordance to validation loss
         early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
 
-        # Define callbacks
-        early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
-        reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=3, verbose=1)
-        checkpoint = ModelCheckpoint('checkpoint_best_model.keras', monitor='val_loss', save_best_only=True)
-
-
         #now we train the model
         model.fit(X_train, y_train_cat,
                   validation_data=(X_val, y_val_cat),
                   epochs=20,
                   batch_size=32,
                   class_weight=class_weights_dict, #prevent bias to majority class like correct
-                  callbacks=[early_stop, reduce_lr, checkpoint],
+                  callbacks=[early_stop],
                   verbose=1)
+        #save the model for reuse
+        model.save('best_model.keras')
         return model
 
 #testing hyperparameter combinations to find the best ones
@@ -105,22 +114,17 @@ class CNNTrainer:
             y_train_cat = to_categorical(y_train, num_classes=3)
             y_val_cat = to_categorical(y_val, num_classes=3)
 
-            class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
+            class_weights = compute_class_weight('balanced', classes=np.array([0, 1, 2]), y=y_train)
             class_weights_dict = dict(enumerate(class_weights))
 
-            early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
-
-            # Define callbacks
-            early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
-            reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=3, verbose=1)
-            checkpoint = ModelCheckpoint('checkpoint_best_model.keras', monitor='val_loss', save_best_only=True)
+            early_stop = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
 
             model.fit(X_train, y_train_cat,
                       validation_data=(X_val, y_val_cat),
                       epochs=epochs,
                       batch_size=batch_size,
                       class_weight=class_weights_dict,
-                      callbacks=[early_stop, reduce_lr, checkpoint],
+                      callbacks=[early_stop],
                       verbose=1)
 
             y_pred = np.argmax(model.predict(X_val), axis=1) #convert the softmax output, to the class labels
@@ -133,7 +137,7 @@ class CNNTrainer:
                 best_config = (filters, dense_units, dropout, lr, batch_size, epochs)
 
         print(f"\n\U0001F3C6 Best Configuration: {best_config}, Macro F1: {best_f1:.4f}")
-        joblib.dump((best_model, best_config), 'best_model_with_config.joblib') 
+        joblib.dump(best_model, 'best_model_gridsearch.joblib') 
         return best_model, best_config
 
     #evalute the final model with the metrics and confusion matrix from the evaluator class
