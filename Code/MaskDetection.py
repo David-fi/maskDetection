@@ -7,8 +7,9 @@ from keras.api.models import load_model
 from skimage.io import imread
 from skimage.transform import resize
 
-# Load the best model
-model = load_model('best_model.keras')
+# Load the best model from relative path
+MODEL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Models', 'best_CNN_model.keras'))
+model = load_model(MODEL_PATH)
 
 #class names 0,1,2
 class_names = ['No Mask', 'Mask', 'Incorrect']
@@ -63,8 +64,8 @@ def MaskDetection(path_to_images, image_size=(128, 128), n_samples=4):
             # Draw bounding box around the face
             rect = plt.Rectangle((x, y), w, h, fill=False, color='lime', linewidth=2)
             ax.add_patch(rect)
-            #aboce the bounding box put the label
-            ax.text(x, y - 10, label, color='white', fontsize=12, backgroundcolor='black')
+            #above the bounding box put the label
+            ax.text(x, y - 10, label, color='white', fontsize=10, backgroundcolor='black')
         #withouth axis ticks it looks better
         plt.axis('off')
         #title is the image name

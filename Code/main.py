@@ -1,12 +1,13 @@
+import os
 from Code.data_loader import prepare_datasets
-from models.hog_svm import train_hog_svm, evaluate_hog_svm, show_predictions
-from Code.evaluator import ModelEvaluator
-from models.cnn import CNNTrainer
 
-train_image_path = '/Users/david/Library/Mobile Documents/com~apple~CloudDocs/Documents/Documents – David’s MacBook Pro/university/year 3/Computer vision/cw/CV2024_CW_Dataset/train/images'
-train_label_path = '/Users/david/Library/Mobile Documents/com~apple~CloudDocs/Documents/Documents – David’s MacBook Pro/university/year 3/Computer vision/cw/CV2024_CW_Dataset/train/labels'
-test_image_path = '/Users/david/Library/Mobile Documents/com~apple~CloudDocs/Documents/Documents – David’s MacBook Pro/university/year 3/Computer vision/cw/CV2024_CW_Dataset/test/images'
-test_label_path = '/Users/david/Library/Mobile Documents/com~apple~CloudDocs/Documents/Documents – David’s MacBook Pro/university/year 3/Computer vision/cw/CV2024_CW_Dataset/test/labels'
+# Load dataset once
+BASE_DATASET_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'CW_Dataset'))
+
+train_image_path = os.path.join(BASE_DATASET_PATH, 'train', 'images')
+train_label_path = os.path.join(BASE_DATASET_PATH, 'train', 'labels')
+test_image_path = os.path.join(BASE_DATASET_PATH, 'test', 'images')
+test_label_path = os.path.join(BASE_DATASET_PATH, 'test', 'labels')
 
 X_train, y_train, X_val, y_val, X_test, y_test = prepare_datasets(
     train_image_path, train_label_path,
@@ -14,63 +15,99 @@ X_train, y_train, X_val, y_val, X_test, y_test = prepare_datasets(
     image_size=(128, 128)
 )
 
-'''
-# train on training set
-hog_svm_model = train_hog_svm(X_train, y_train)
-# Evaluate only on validation set
-val_preds = evaluate_hog_svm(hog_svm_model, X_val, y_val)
-# Visualize some results from validation set
-show_predictions(X_val, y_val, val_preds)
-'''
-'''
-from models.sift_mlp import train_sift_mlp, evaluate_sift_mlp, show_predictions
+# --- Model Functions ---
 
-# Train
-clf_sift, kmeans_sift = train_sift_mlp(X_train, y_train)
-# Evaluate
-val_preds_sift = evaluate_sift_mlp(clf_sift, kmeans_sift, X_val, y_val)
-# Visualize
-show_predictions(X_val, y_val, val_preds_sift)
-'''
-'''
-from models.cnn import train_cnn, evaluate_cnn, show_predictions
+def run_hog_svm():
+    from models.hog_svm import train_hog_svm, evaluate_hog_svm, show_predictions
+    hog_model = train_hog_svm(X_train, y_train)
+    predictions = evaluate_hog_svm(hog_model, X_val, y_val)
+    show_predictions(X_val, y_val, predictions)
 
-# Train CNN
-cnn_model, cnn_history = train_cnn(X_train, y_train, X_val, y_val)
-
-# Evaluate
-y_pred_cnn = evaluate_cnn(cnn_model, X_val, y_val)
-
-# Visualize
-show_predictions(X_val, y_val, y_pred_cnn)
-
-'''
-
-param_grid = [
-    ((32, 64, 128), 128, 0.3, 0.001, 32, 15),
-    #((32, 64, 128), 256, 0.2, 0.0001, 64, 15),
-    ((32, 64, 128, 256), 128, 0.3, 0.0001, 32, 15),
-    ((64, 128, 256), 256, 0.2, 0.001, 64, 20),
-]
-
-trainer = CNNTrainer()
-best_model, best_config = trainer.run_grid_search(X_train, y_train, X_val, y_val, param_grid)
-trainer.evaluate_model(best_model, X_val, y_val)
-trainer.visualize_predictions(best_model, X_val, y_val)
-
-#best parameters from saved model:
-trainer = CNNTrainer()
-
-model = trainer.train_best_model(X_train, y_train, X_val, y_val)
-
-trainer.evaluate_model(model, X_val, y_val)
-trainer.visualize_predictions(model, X_val, y_val, n_samples=4)
-
-#test on the test set
-trainer.evaluate_model(model, X_test, y_test)
-trainer.visualize_predictions(model, X_test, y_test, n_samples=4)
-
-#mask detection in the wild
+def run_sift_mlp():
+    from models.sift_mlp import train_sift_mlp, evaluate_sift_mlp, show_predictions
+    clf, kmeans = train_sift_mlp(X_train, y_train)
+    predictions = evaluate_sift_mlp(clf, kmeans, X_val, y_val)
+    show_predictions(X_val, y_val, predictions)
 
 
-MaskDetection("/Users/david/Library/Mobile Documents/com~apple~CloudDocs/Documents/Documents – David’s MacBook Pro/university/year 3/Computer vision/cw/masks in the wild database/images")
+
+def run_cnn_gridsearch():
+    from models.cnn import CNNTrainer
+    trainer = CNNTrainer()
+    param_grid = [
+        ((32, 64, 128), 128, 0.3, 0.001, 32, 15),
+        ((32, 64, 128, 256), 128, 0.3, 0.0001, 32, 15),
+        ((64, 128, 256), 256, 0.2, 0.001, 64, 20),
+    ]
+    best_model, _ = trainer.run_grid_search(X_train, y_train, X_val, y_val, param_grid)
+    trainer.evaluate_model(best_model, X_val, y_val)
+    trainer.visualize_predictions(best_model, X_val, y_val)
+
+def run_cnn_best():
+    from models.cnn import CNNTrainer
+    trainer = CNNTrainer()
+    model = trainer.train_best_model(X_train, y_train, X_val, y_val)
+    trainer.evaluate_model(model, X_val, y_val)
+    trainer.visualize_predictions(model, X_val, y_val)
+
+def run_all_saved_models_on_test():
+    from evaluator import ModelEvaluator
+    import joblib
+    import numpy as np
+    from keras.api.models import load_model
+    import os
+
+    evaluator = ModelEvaluator(class_names=["No Mask", "Mask", "Incorrect"])
+
+    # Setup paths
+    MAIN_DIR = os.getcwd()
+    PROJECT_DIR = os.path.abspath(os.path.join(MAIN_DIR))
+    MODEL_DIR = os.path.join(PROJECT_DIR, 'Models')
+    print(MODEL_DIR)
+
+   
+    print("\nTesting HOG + SVM Model")
+    from models.hog_svm import extract_hog_features
+    hog_model_path = os.path.join(MODEL_DIR, 'hog_svm_model.joblib')
+    if os.path.exists(hog_model_path):
+        hog_model = joblib.load(hog_model_path)
+        X_test_hog = extract_hog_features(X_test)
+        y_pred_hog = hog_model.predict(X_test_hog)
+        evaluator.evaluate(y_test, y_pred_hog, model_name="HOG + SVM (Test)")
+        evaluator.plot_confusion_matrix(y_test, y_pred_hog)
+    else:
+        print("HOG SVM model not found.")
+
+    print("\nTesting SIFT + MLP Model")
+    from models.sift_mlp import extract_sift_descriptors, compute_bovw_histograms
+    sift_model_path = os.path.join(MODEL_DIR, 'sift_mlp_model.joblib')
+    kmeans_path = os.path.join(MODEL_DIR, 'sift_kmeans.joblib')
+    if os.path.exists(sift_model_path) and os.path.exists(kmeans_path):
+        sift_model = joblib.load(sift_model_path)
+        kmeans_model = joblib.load(kmeans_path)
+        descriptors_test, test_indices = extract_sift_descriptors(X_test)
+        X_test_bovw = compute_bovw_histograms(descriptors_test, kmeans_model)
+        y_test_filtered = y_test[test_indices]
+        y_pred_sift = sift_model.predict(X_test_bovw)
+        evaluator.evaluate(y_test_filtered, y_pred_sift, model_name="SIFT + MLP (Test)")
+        evaluator.plot_confusion_matrix(y_test_filtered, y_pred_sift)
+    else:
+        print("SIFT model or KMeans model not found.")
+
+    print("\nTesting best CNN Model")
+    cnn_model_path = os.path.join(MODEL_DIR, 'best_CNN_model.keras')
+    if os.path.exists(cnn_model_path):
+        cnn_model = load_model(cnn_model_path)
+        y_pred_cnn = np.argmax(cnn_model.predict(X_test), axis=1)
+        evaluator.evaluate(y_test, y_pred_cnn, model_name="CNN (Test)")
+        evaluator.plot_confusion_matrix(y_test, y_pred_cnn)
+    else:
+        print("CNN model not found.")
+
+
+#run_hog_svm()
+#run_sift_mlp()
+
+#run_cnn_gridsearch()
+#run_cnn_best()
+run_all_saved_models_on_test()

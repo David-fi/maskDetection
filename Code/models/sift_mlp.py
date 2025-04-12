@@ -4,7 +4,16 @@ from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
 from sklearn.neural_network import MLPClassifier
 from evaluator import ModelEvaluator
+import os
+import joblib
 
+# Set path
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR = os.path.join(PROJECT_DIR,  '..','..', 'Models')
+os.makedirs(MODEL_DIR, exist_ok=True)
+
+MODEL_PATH = os.path.join(MODEL_DIR, 'sift_mlp_model.joblib')
+KMEANS_PATH = os.path.join(MODEL_DIR, 'sift_kmeans.joblib')
 evaluator = ModelEvaluator(class_names=["No Mask", "Mask", "Incorrect"])
 def extract_sift_descriptors(images, max_features_per_image=100):
    
@@ -73,6 +82,9 @@ def train_sift_mlp(X_train, y_train, vocab_size=100):
         random_state=42 #for reproducibility
         )
     clf.fit(bovw_train, y_train_filtered) #training the MLP on BoVW features and label
+    # Save models
+    joblib.dump(clf, MODEL_PATH)
+    joblib.dump(kmeans_model, KMEANS_PATH)
 
     return clf, kmeans_model  # return both for reuse on evaluation
 

@@ -1,5 +1,5 @@
 import tensorflow as tf
-from keras.api.models import Sequential
+from keras.api.models import Sequential, load_model
 from keras.api.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, Input
 from keras.api.utils import to_categorical
 from keras.api.callbacks import EarlyStopping
@@ -7,13 +7,19 @@ from keras.api.optimizers import Adam
 import numpy as np
 from sklearn.utils.class_weight import compute_class_weight
 import joblib
-
+import os
 import numpy as np, random, tensorflow as tf
 np.random.seed(42)
 random.seed(42)
 tf.random.set_seed(42)
 from evaluator import ModelEvaluator
 evaluator = ModelEvaluator(class_names=["No Mask", "Mask", "Incorrect"])
+
+MODEL_SAVE_PATH_GRID = os.path.join(os.path.dirname(__file__),  '..','..', 'Models', 'best_gridsearch_model.keras')
+MODEL_SAVE_PATH_GRID = os.path.abspath(MODEL_SAVE_PATH_GRID)
+
+MODEL_SAVE_PATH_FINAL = os.path.join(os.path.dirname(__file__),  '..','..', 'Models', 'best_CNN_model.keras')
+MODEL_SAVE_PATH_FINAL = os.path.abspath(MODEL_SAVE_PATH_FINAL)
 
 def build_cnn(input_shape=(128, 128, 3), num_classes=3, filters=(32, 64, 128), dense_units=128, dropout=0.5):
     model = Sequential() #using a sequential model
@@ -48,7 +54,9 @@ class CNNTrainer:
     def train_best_model(self, X_train, y_train, X_val, y_val):
         #input_shape = X_train.shape[1:] allows the model to be flexible to different resolutions 
           
-        model = joblib.load('best_model_gridsearch.joblib')  # Load the best model found from grid search
+          
+        model_path = os.path.join(MODEL_SAVE_PATH_GRID)
+        model = load_model(model_path)  # Load the best model found from grid search
         print("Loaded model parameters:")
         print(model.get_config())
         
@@ -89,7 +97,9 @@ class CNNTrainer:
                   callbacks=[early_stop],
                   verbose=1)
         #save the model for reuse
-        model.save('best_model.keras')
+        # Using model.save() for CNN as it's a Keras model (saves full model + weights).
+        # joblib is used for simpler models like SVM/MLP that don't need architecture saved.    
+        model.save(MODEL_SAVE_PATH_FINAL)
         return model
 
 #testing hyperparameter combinations to find the best ones
@@ -110,15 +120,17 @@ class CNNTrainer:
                               filters=filters, dense_units=dense_units, dropout=dropout)
             #compile 
             model = compile_model(model, lr)
-
+            # Convert labels to categorical (1 -> [0, 1, 0])
             y_train_cat = to_categorical(y_train, num_classes=3)
             y_val_cat = to_categorical(y_val, num_classes=3)
-
+            #to handle the imbalances in the dataset im using the class weight
             class_weights = compute_class_weight('balanced', classes=np.array([0, 1, 2]), y=y_train)
             class_weights_dict = dict(enumerate(class_weights))
 
+             #prevent overfitting in accordance to validation loss
             early_stop = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
 
+            #train the model
             model.fit(X_train, y_train_cat,
                       validation_data=(X_val, y_val_cat),
                       epochs=epochs,
@@ -137,7 +149,9 @@ class CNNTrainer:
                 best_config = (filters, dense_units, dropout, lr, batch_size, epochs)
 
         print(f"\n\U0001F3C6 Best Configuration: {best_config}, Macro F1: {best_f1:.4f}")
-        joblib.dump(best_model, 'best_model_gridsearch.joblib') 
+        # Using model.save() for CNN as it's a Keras model (saves full model + weights).
+        # joblib is used for simpler models like SVM/MLP that don't need architecture saved.
+        best_model.save(MODEL_SAVE_PATH_GRID)
         return best_model, best_config
 
     #evalute the final model with the metrics and confusion matrix from the evaluator class
@@ -147,7 +161,7 @@ class CNNTrainer:
         evaluator.plot_confusion_matrix(y_val, y_pred)
         return y_pred
 
-    #visualise some results for the report
+    #visualize some results for the report
     def visualize_predictions(self, model, X_val, y_val, n_samples=4):
         y_pred = np.argmax(model.predict(X_val), axis=1)
         evaluator.visualize_predictions(X_val, y_val, y_pred, n_samples=n_samples)
