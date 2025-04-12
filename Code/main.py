@@ -50,29 +50,36 @@ def run_cnn_best():
     trainer.evaluate_model(model, X_val, y_val)
     trainer.visualize_predictions(model, X_val, y_val)
 
-def run_all_saved_models_on_test():
-    from evaluator import ModelEvaluator
-    import joblib
-    import numpy as np
-    from keras.api.models import load_model
-    import os
+import os
+import time
+import joblib
+import numpy as np
+from keras.api.models import load_model
+from evaluator import ModelEvaluator
 
+def run_all_saved_models_on_test():
     evaluator = ModelEvaluator(class_names=["No Mask", "Mask", "Incorrect"])
 
-    # Setup paths
     MAIN_DIR = os.getcwd()
     PROJECT_DIR = os.path.abspath(os.path.join(MAIN_DIR))
     MODEL_DIR = os.path.join(PROJECT_DIR, 'Models')
     print(MODEL_DIR)
 
-   
     print("\nTesting HOG + SVM Model")
     from models.hog_svm import extract_hog_features
     hog_model_path = os.path.join(MODEL_DIR, 'hog_svm_model.joblib')
     if os.path.exists(hog_model_path):
         hog_model = joblib.load(hog_model_path)
         X_test_hog = extract_hog_features(X_test)
+
+        start = time.time()
         y_pred_hog = hog_model.predict(X_test_hog)
+        duration = time.time() - start
+
+        size = os.path.getsize(hog_model_path) / 1024  # KB
+        print(f"HOG+SVM inference time: {duration:.4f}s")
+        print(f"HOG+SVM model size: {size:.2f} KB")
+
         evaluator.evaluate(y_test, y_pred_hog, model_name="HOG + SVM (Test)")
         evaluator.plot_confusion_matrix(y_test, y_pred_hog)
     else:
@@ -85,10 +92,19 @@ def run_all_saved_models_on_test():
     if os.path.exists(sift_model_path) and os.path.exists(kmeans_path):
         sift_model = joblib.load(sift_model_path)
         kmeans_model = joblib.load(kmeans_path)
+
         descriptors_test, test_indices = extract_sift_descriptors(X_test)
         X_test_bovw = compute_bovw_histograms(descriptors_test, kmeans_model)
         y_test_filtered = y_test[test_indices]
+
+        start = time.time()
         y_pred_sift = sift_model.predict(X_test_bovw)
+        duration = time.time() - start
+
+        size = os.path.getsize(sift_model_path) / 1024
+        print(f"SIFT+MLP inference time: {duration:.4f}s")
+        print(f"SIFT+MLP model size: {size:.2f} KB")
+
         evaluator.evaluate(y_test_filtered, y_pred_sift, model_name="SIFT + MLP (Test)")
         evaluator.plot_confusion_matrix(y_test_filtered, y_pred_sift)
     else:
@@ -98,12 +114,19 @@ def run_all_saved_models_on_test():
     cnn_model_path = os.path.join(MODEL_DIR, 'best_CNN_model.keras')
     if os.path.exists(cnn_model_path):
         cnn_model = load_model(cnn_model_path)
+
+        start = time.time()
         y_pred_cnn = np.argmax(cnn_model.predict(X_test), axis=1)
+        duration = time.time() - start
+
+        size = os.path.getsize(cnn_model_path) / 1024 / 1024  # MB
+        print(f"CNN inference time: {duration:.4f}s")
+        print(f"CNN model size: {size:.2f} MB")
+
         evaluator.evaluate(y_test, y_pred_cnn, model_name="CNN (Test)")
         evaluator.plot_confusion_matrix(y_test, y_pred_cnn)
     else:
         print("CNN model not found.")
-
 
 #run_hog_svm()
 #run_sift_mlp()
